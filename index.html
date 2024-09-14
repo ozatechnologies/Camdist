@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>MedTech Face Distance Warning</title>
+    <title>Face Detection with Watermark</title>
     <!-- Load Face API.js library -->
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
@@ -29,7 +29,6 @@
             background-color: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 5px;
-            font-family: Arial, sans-serif;
         }
         #warning {
             position: fixed;
@@ -44,6 +43,18 @@
             display: none;
             font-weight: bold;
         }
+        #watermark {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%) rotate(-30deg); /* Center and rotate */
+            z-index: 10;
+            font-size: 48px; /* Adjust font size as needed */
+            color: rgba(0, 0, 0, 0.5); /* White color with 50% opacity */
+            font-family: Arial, sans-serif;
+            pointer-events: none;
+            text-align: center;
+        }
     </style>
 </head>
 <body>
@@ -51,6 +62,7 @@
     <div id="warning">Warning: Too Close! Please move back for eye safety!</div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
+    <div id="watermark">ApraAI</div>
 
     <script>
         const video = document.getElementById('video');
@@ -60,12 +72,12 @@
         const warningText = document.getElementById('warning');
 
         const modelUrl = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+        let isPlayingBeep = false;
 
-        // Load models and start video
         window.onload = async function() {
             try {
                 await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl); // Added face landmark for eyes detection
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
                 startVideo();
             } catch (error) {
                 console.error("Error loading models: ", error);
@@ -76,7 +88,7 @@
         async function startVideo() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } }
+                    video: { facingMode: 'user' }
                 });
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
@@ -91,60 +103,81 @@
         }
 
         async function detectFace() {
-            const detectionOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
+            const detectionOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.6 });
 
             const detect = async () => {
-                const detections = await faceapi.detectAllFaces(video, detectionOptions)
-                    .withFaceLandmarks();  // Include landmarks for eyes
+                const detections = await faceapi.detectSingleFace(video, detectionOptions)
+                    .withFaceLandmarks();  // Include landmarks for precision
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas for the next frame
 
-                if (detections.length > 0) {
-                    const detection = detections[0];
-                    const faceBox = detection.detection.box;
-                    const landmarks = detection.landmarks;
-                    const leftEye = landmarks.getLeftEye();
-                    const rightEye = landmarks.getRightEye();
-
-                    // Draw precise face box
-                    ctx.strokeStyle = 'blue';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(faceBox.x, faceBox.y, faceBox.width, faceBox.height);
-
-                    // Mark the eyes
-                    drawLandmarks(leftEye, rightEye);
+                if (detections) {
+                    const faceBox = calculateAccurateBox(detections.landmarks.positions); // Custom bounding box
+                    drawBoundingBox(faceBox);  // Draw refined face box
+                    
+                    // Draw landmarks for eyes (if required)
+                    drawLandmarks(detections.landmarks.getLeftEye(), detections.landmarks.getRightEye());
 
                     // Calculate face distance and trigger warning if too close
-                    const distance = estimateDistance(faceBox.width);
+                    const faceWidth = faceBox.width;
+                    const distance = estimateDistance(faceWidth);
                     statusText.textContent = `Distance: ${distance.toFixed(2)} cm`;
 
                     if (distance < 25) {
-                        warningText.style.display = 'block';  // Show warning
+                        warningText.style.display = 'block';  // Show warning if too close
+                        if (!isPlayingBeep) {
+                            playBeep();
+                        }
                     } else {
                         warningText.style.display = 'none';  // Hide warning
+                        stopBeep();
                     }
                 } else {
                     statusText.textContent = "No face detected.";
                     warningText.style.display = 'none';  // Hide warning if no face detected
+                    stopBeep();
                 }
 
-                requestAnimationFrame(detect); // Continue detecting
+                requestAnimationFrame(detect); // Continue detecting in a loop
             };
 
             detect();
         }
 
+        // Function to calculate an accurate bounding box based on landmarks
+        function calculateAccurateBox(landmarks) {
+            const xValues = landmarks.map(point => point.x);
+            const yValues = landmarks.map(point => point.y);
+
+            const minX = Math.min(...xValues);
+            const maxX = Math.max(...xValues);
+            const minY = Math.min(...yValues);
+            const maxY = Math.max(...yValues);
+
+            return {
+                x: minX,
+                y: minY,
+                width: maxX - minX,
+                height: maxY - minY
+            };
+        }
+
+        // Function to draw the bounding box
+        function drawBoundingBox(box) {
+            ctx.strokeStyle = 'blue';
+            ctx.lineWidth = 2;
+            ctx.strokeRect(box.x, box.y, box.width, box.height);
+        }
+
         // Function to draw eye landmarks
         function drawLandmarks(leftEye, rightEye) {
             ctx.fillStyle = 'green';
-            ctx.beginPath();
-            leftEye.forEach(point => {
-                ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
-                ctx.fill();
-            });
-            rightEye.forEach(point => {
-                ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
-                ctx.fill();
+            [leftEye, rightEye].forEach(eye => {
+                eye.forEach(point => {
+                    ctx.beginPath();
+                    ctx.arc(point.x, point.y, 3, 0, Math.PI * 2);
+                    ctx.fill();
+                });
             });
         }
 
@@ -153,6 +186,28 @@
             const baseWidth = 100;  // Calibrated width in pixels
             const baseDistance = 50;  // Base distance in cm
             return baseDistance * (baseWidth / faceWidth);
+        }
+
+        // Web Audio API for Beep sound
+        const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        let oscillator;
+        
+        // Function to play the beep sound
+        function playBeep() {
+            oscillator = audioCtx.createOscillator();
+            oscillator.type = 'sine';
+            oscillator.frequency.setValueAtTime(1000, audioCtx.currentTime); // Set frequency to 1000 Hz
+            oscillator.connect(audioCtx.destination);
+            oscillator.start();
+            isPlayingBeep = true;
+        }
+
+        // Function to stop the beep sound
+        function stopBeep() {
+            if (oscillator) {
+                oscillator.stop();
+                isPlayingBeep = false;
+            }
         }
     </script>
 </body>
