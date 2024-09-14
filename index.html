@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Real-Time Face Detection</title>
+    <title>MedTech Face Distance Warning</title>
     <!-- Load Face API.js library -->
     <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
     <style>
@@ -29,11 +29,26 @@
             background-color: rgba(0, 0, 0, 0.5);
             padding: 10px;
             border-radius: 5px;
+            font-family: Arial, sans-serif;
+        }
+        #warning {
+            position: fixed;
+            top: 50px;
+            left: 10px;
+            z-index: 10;
+            color: red;
+            background-color: rgba(255, 255, 255, 0.8);
+            padding: 10px;
+            border-radius: 5px;
+            font-family: Arial, sans-serif;
+            display: none;
+            font-weight: bold;
         }
     </style>
 </head>
 <body>
     <div id="status">Loading face detection models...</div>
+    <div id="warning">Warning: Too Close! Please move back for eye safety!</div>
     <video id="video" autoplay muted playsinline></video>
     <canvas id="overlay"></canvas>
 
@@ -42,15 +57,15 @@
         const canvas = document.getElementById('overlay');
         const ctx = canvas.getContext('2d');
         const statusText = document.getElementById('status');
+        const warningText = document.getElementById('warning');
 
-        // URL to load the face-api.js models
         const modelUrl = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
 
         // Load models and start video
         window.onload = async function() {
             try {
                 await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
-                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl); // Added face landmark for eyes detection
                 startVideo();
             } catch (error) {
                 console.error("Error loading models: ", error);
@@ -58,7 +73,6 @@
             }
         };
 
-        // Start video stream
         async function startVideo() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
@@ -76,41 +90,68 @@
             }
         }
 
-        // Detect faces and update the canvas
         async function detectFace() {
-            const detectionOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 }); // Optimized for speed
+            const detectionOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 });
 
             const detect = async () => {
-                const detections = await faceapi.detectAllFaces(video, detectionOptions);
+                const detections = await faceapi.detectAllFaces(video, detectionOptions)
+                    .withFaceLandmarks();  // Include landmarks for eyes
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas for next frame
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas for the next frame
 
                 if (detections.length > 0) {
-                    const faceBox = detections[0].box;
-                    const faceWidth = faceBox.width;
+                    const detection = detections[0];
+                    const faceBox = detection.detection.box;
+                    const landmarks = detection.landmarks;
+                    const leftEye = landmarks.getLeftEye();
+                    const rightEye = landmarks.getRightEye();
 
-                    // Draw bounding box
-                    ctx.strokeStyle = 'red';
-                    ctx.lineWidth = 3;
+                    // Draw precise face box
+                    ctx.strokeStyle = 'blue';
+                    ctx.lineWidth = 2;
                     ctx.strokeRect(faceBox.x, faceBox.y, faceBox.width, faceBox.height);
 
-                    // Estimate distance and update status
-                    const distance = estimateDistance(faceWidth);
+                    // Mark the eyes
+                    drawLandmarks(leftEye, rightEye);
+
+                    // Calculate face distance and trigger warning if too close
+                    const distance = estimateDistance(faceBox.width);
                     statusText.textContent = `Distance: ${distance.toFixed(2)} cm`;
+
+                    if (distance < 25) {
+                        warningText.style.display = 'block';  // Show warning
+                    } else {
+                        warningText.style.display = 'none';  // Hide warning
+                    }
                 } else {
                     statusText.textContent = "No face detected.";
+                    warningText.style.display = 'none';  // Hide warning if no face detected
                 }
 
-                requestAnimationFrame(detect); // Continue detection in sync with video frames
+                requestAnimationFrame(detect); // Continue detecting
             };
 
-            detect(); // Start detecting
+            detect();
         }
 
-        // Dummy function to estimate distance based on face size
+        // Function to draw eye landmarks
+        function drawLandmarks(leftEye, rightEye) {
+            ctx.fillStyle = 'green';
+            ctx.beginPath();
+            leftEye.forEach(point => {
+                ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+            rightEye.forEach(point => {
+                ctx.arc(point.x, point.y, 2, 0, Math.PI * 2);
+                ctx.fill();
+            });
+        }
+
+        // Function to estimate distance based on face width
         function estimateDistance(faceWidth) {
-            const baseWidth = 100;  // Example width in pixels
-            const baseDistance = 50;  // Example distance in cm
+            const baseWidth = 100;  // Calibrated width in pixels
+            const baseDistance = 50;  // Base distance in cm
             return baseDistance * (baseWidth / faceWidth);
         }
     </script>
