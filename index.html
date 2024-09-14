@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Real-Time Face Detection</title>
+    <!-- Load Face API.js library -->
+    <script defer src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+    <style>
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+        }
+        #status {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 10;
+            color: white;
+            background-color: rgba(0, 0, 0, 0.5);
+            padding: 10px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+<body>
+    <div id="status">Loading face detection models...</div>
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+
+    <script>
+        const video = document.getElementById('video');
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+        const statusText = document.getElementById('status');
+
+        // Correct URL for model weights
+        const modelUrl = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
+
+        // Load models and start video
+        window.onload = async function() {
+            try {
+                await faceapi.nets.tinyFaceDetector.loadFromUri(modelUrl);
+                await faceapi.nets.faceLandmark68Net.loadFromUri(modelUrl);
+                startVideo();
+            } catch (error) {
+                console.error("Error loading models: ", error);
+                statusText.textContent = "Failed to load face detection models.";
+            }
+        };
+
+        // Start video stream from front camera
+        async function startVideo() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: 'user' }
+                });
+                video.srcObject = stream;
+                video.onloadedmetadata = () => {
+                    canvas.width = video.videoWidth;
+                    canvas.height = video.videoHeight;
+                    detectFace();
+                };
+            } catch (error) {
+                console.error("Error accessing the camera: ", error);
+                statusText.textContent = "Error accessing the camera.";
+            }
+        }
+
+        // Detect faces and estimate distance
+        async function detectFace() {
+            const detectionOptions = new faceapi.TinyFaceDetectorOptions();
+            setInterval(async () => {
+                const detections = await faceapi.detectAllFaces(video, detectionOptions);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+                if (detections.length > 0) {
+                    const faceBox = detections[0].box;
+                    const faceWidth = faceBox.width;
+
+                    // Draw bounding box
+                    ctx.strokeStyle = 'red';
+                    ctx.lineWidth = 3;
+                    ctx.strokeRect(faceBox.x, faceBox.y, faceBox.width, faceBox.height);
+
+                    // Estimate distance and update status
+                    const distance = estimateDistance(faceWidth);
+                    statusText.textContent = `Distance: ${distance.toFixed(2)} cm`;
+                } else {
+                    statusText.textContent = "No face detected.";
+                }
+            }, 100);  // Detect faces every 100 milliseconds
+        }
+
+        // Estimate distance based on face width (dummy function for demonstration)
+        function estimateDistance(faceWidth) {
+            // Example linear function: adjust constants based on calibration
+            const baseWidth = 100;  // Example base width in pixels
+            const baseDistance = 50;  // Example base distance in cm
+            return baseDistance * (baseWidth / faceWidth);
+        }
+    </script>
+</body>
+</html>
