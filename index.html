@@ -43,7 +43,7 @@
         const ctx = canvas.getContext('2d');
         const statusText = document.getElementById('status');
 
-        // Correct URL for model weights
+        // URL to load the face-api.js models
         const modelUrl = 'https://cdn.jsdelivr.net/gh/justadudewhohacks/face-api.js@master/weights/';
 
         // Load models and start video
@@ -58,11 +58,11 @@
             }
         };
 
-        // Start video stream from front camera
+        // Start video stream
         async function startVideo() {
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({
-                    video: { facingMode: 'user' }
+                    video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 }, frameRate: { ideal: 30, max: 60 } }
                 });
                 video.srcObject = stream;
                 video.onloadedmetadata = () => {
@@ -76,13 +76,14 @@
             }
         }
 
-        // Detect faces and estimate distance
+        // Detect faces and update the canvas
         async function detectFace() {
-            const detectionOptions = new faceapi.TinyFaceDetectorOptions();
-            setInterval(async () => {
+            const detectionOptions = new faceapi.TinyFaceDetectorOptions({ inputSize: 160, scoreThreshold: 0.5 }); // Optimized for speed
+
+            const detect = async () => {
                 const detections = await faceapi.detectAllFaces(video, detectionOptions);
 
-                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                ctx.clearRect(0, 0, canvas.width, canvas.height); // Clear canvas for next frame
 
                 if (detections.length > 0) {
                     const faceBox = detections[0].box;
@@ -99,14 +100,17 @@
                 } else {
                     statusText.textContent = "No face detected.";
                 }
-            }, 100);  // Detect faces every 100 milliseconds
+
+                requestAnimationFrame(detect); // Continue detection in sync with video frames
+            };
+
+            detect(); // Start detecting
         }
 
-        // Estimate distance based on face width (dummy function for demonstration)
+        // Dummy function to estimate distance based on face size
         function estimateDistance(faceWidth) {
-            // Example linear function: adjust constants based on calibration
-            const baseWidth = 100;  // Example base width in pixels
-            const baseDistance = 50;  // Example base distance in cm
+            const baseWidth = 100;  // Example width in pixels
+            const baseDistance = 50;  // Example distance in cm
             return baseDistance * (baseWidth / faceWidth);
         }
     </script>
